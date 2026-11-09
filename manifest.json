@@ -1,0 +1,12 @@
+{
+  "name": "Care Companion",
+  "short_name": "Care",
+  "description": "Medicines, appointments, errands and contacts for the people you care for.",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#f5f2ec",
+  "theme_color": "#4f7f70",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

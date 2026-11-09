@@ -214,15 +214,56 @@ function openStatus(c) {
 const statusPill = c => { const s = openStatus(c); return s.state === 'unknown' ? '' : `<span class="pill ${s.state}">${esc(s.text)}</span>`; };
 
 /* ---------- Toast ---------- */
-let toastTimer;
+let toastTimer, toastGone;
 function toast(msg, undo) {
   const t = $('#toast');
+  clearTimeout(toastTimer); clearTimeout(toastGone);
   t.innerHTML = `<span>${esc(msg)}</span>${undo ? '<button type="button">Undo</button>' : ''}`;
+  t.style.transition = ''; t.style.transform = ''; t.style.opacity = '';
+  t.classList.remove('hide');
+  void t.offsetWidth;
   t.classList.add('show');
-  if (undo) t.querySelector('button').onclick = () => { undo(); t.classList.remove('show'); };
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => t.classList.remove('show'), undo ? 6000 : 2600);
+  if (undo) t.querySelector('button').onclick = () => { undo(); hideToast(); };
+  toastTimer = setTimeout(() => hideToast(), undo ? 5000 : 2200);
 }
+function hideToast(dx = 0, dy = 0) {
+  const t = $('#toast');
+  if (!t.classList.contains('show')) return;
+  clearTimeout(toastTimer);
+  t.style.transition = '';
+  if (dx || dy) {
+    t.style.transform = dy ? 'translate(-50%, 90px)' : `translate(calc(-50% + ${dx < 0 ? -420 : 420}px), 0)`;
+    t.style.opacity = '0';
+  } else t.classList.add('hide');
+  toastGone = setTimeout(() => { t.classList.remove('show', 'hide'); t.style.transform = ''; t.style.opacity = ''; }, 380);
+}
+(function toastSwipe() {
+  let st = null;
+  document.addEventListener('pointerdown', ev => {
+    const t = ev.target.closest('#toast');
+    if (!t || ev.target.closest('button') || !t.classList.contains('show')) return;
+    st = { x: ev.clientX, y: ev.clientY, dx: 0, dy: 0 };
+    clearTimeout(toastTimer);
+    t.style.transition = 'none';
+  });
+  document.addEventListener('pointermove', ev => {
+    if (!st) return;
+    st.dx = ev.clientX - st.x; st.dy = Math.max(0, ev.clientY - st.y);
+    const t = $('#toast');
+    t.style.transform = `translate(calc(-50% + ${st.dx}px), ${st.dy}px)`;
+    t.style.opacity = String(Math.max(0.2, 1 - Math.max(Math.abs(st.dx), st.dy * 2) / 260));
+  });
+  const end = () => {
+    if (!st) return;
+    const { dx, dy } = st; st = null;
+    const t = $('#toast');
+    if (Math.abs(dx) > 70) hideToast(dx, 0);
+    else if (dy > 40) hideToast(0, dy);
+    else { t.style.transition = ''; t.style.transform = ''; t.style.opacity = ''; toastTimer = setTimeout(() => hideToast(), 1800); }
+  };
+  document.addEventListener('pointerup', end);
+  document.addEventListener('pointercancel', end);
+})();
 
 /* ---------- Rendering ---------- */
 const NAV = [['today', 'home', 'Today'], ['plan', 'calendar', 'Plan'], ['meds', 'pill', 'Medicines'], ['contacts', 'book', 'Contacts'], ['about', 'user', 'About']];
@@ -287,7 +328,7 @@ function vToday(p) {
   if (p.allergies) html += `<div class="keyinfo">${icon('alert')}<span><b>Allergies:</b> ${esc(p.allergies)}</span></div>`;
   html += nextUp(p, items, x);
   html += `<h2 class="sec">Today’s plan <span class="small">${items.filter(i => i.done).length} of ${items.length} done</span></h2>`;
-  if (items.length && !S.settings.swipeTipDone) html += `<p class="swipe-tip">${icon('chev')} Tip: swipe an item to the right to remove it <button class="link small" data-act="swipe-tip">Got it</button></p>`;
+  if (items.length && !S.settings.swipeTipDone) html += `<p class="swipe-tip">${icon('chev', 'flip')} Tip: swipe an item to the left to remove it <button class="link small" data-act="swipe-tip">Got it</button></p>`;
   html += items.length ? items.map(i => swipeWrap(i, rowHtml(i, x))).join('') :
     `<div class="card empty">${icon('leaf')}<p>Nothing planned for today.</p><button class="btn" data-act="add">Add something</button></div>`;
   const hu = headsUp(p);
@@ -355,7 +396,7 @@ function rowHtml(i, x) {
 
 function swipeWrap(i, inner) {
   const data = i.kind === 'round' ? `data-swipe="round" data-date="${i.date}" data-time="${i.time}"` : `data-swipe="event" data-id="${i.e.id}" data-date="${i.date}"`;
-  return `<div class="swipe" ${data}><div class="swipe-bg" aria-hidden="true">${icon('x')}<span>Remove</span></div>${inner}</div>`;
+  return `<div class="swipe" ${data}><div class="swipe-bg" aria-hidden="true"><span>Remove</span>${icon('x')}</div>${inner}</div>`;
 }
 
 /* "Thinking ahead": tomorrow's prep, refills, opening-hour clashes. */
@@ -490,18 +531,18 @@ function vAbout(p) {
     ${sec('Care &amp; legal', care)}
     ${sec('Everyday life', life)}
     ${p.notes ? `<h2 class="sec">Good to know</h2><div class="card"><p style="white-space:pre-wrap">${esc(p.notes)}</p></div>` : ''}
+    <h2 class="sec">About me</h2>
+    ${meCard()}
+    <h2 class="sec">People I care for</h2>
+    <div class="card"><div class="stack">${S.people.map(x => `<button class="item" data-act="pick-person" data-id="${x.id}">${avatar(x)}<span class="body"><p class="t">${esc(x.name)}</p><p class="s">${x.id === p.id ? 'Selected' : 'Tap to switch'}</p></span></button>`).join('')}</div>
+    <button class="btn" style="margin-top:12px;width:100%" data-act="add-person">${icon('plus')} Add someone</button></div>
     <h2 class="sec">Helpful</h2>
     <div class="stack">
       <button class="btn big" data-act="print">${icon('print')} Summary for the doctor</button>
       ${canNotify() ? `<button class="btn big" data-act="notify">${icon('bell')} ${S.settings.notify ? 'Reminders are on' : 'Turn on reminders'}</button>` : ''}
     </div>
-    <h2 class="sec">About you, the caregiver</h2>
-    ${meCard()}
-    <h2 class="sec">People you care for</h2>
-    <div class="card"><div class="stack">${S.people.map(x => `<button class="item" data-act="pick-person" data-id="${x.id}">${avatar(x)}<span class="body"><p class="t">${esc(x.name)}</p><p class="s">${x.id === p.id ? 'Selected' : 'Tap to switch'}</p></span></button>`).join('')}</div>
-    <button class="btn" style="margin-top:12px;width:100%" data-act="add-person">${icon('plus')} Add someone</button></div>
-    <h2 class="sec">Your data</h2>
-    <div class="card"><p class="muted small">Everything is saved privately for you. Make a backup now and then, or to move to a new phone.</p>
+    <h2 class="sec">My data</h2>
+    <div class="card"><p class="muted small">Everything is saved privately on my phone. A backup now and then keeps it safe, or helps move to a new phone.</p>
       <div class="actions" style="margin-top:12px"><button class="btn sm" data-act="export">Save a backup</button><button class="btn sm" data-act="import">Restore a backup</button></div>
       <div class="actions" style="margin-top:8px"><button class="btn sm danger" data-act="delete-person">Remove ${esc(p.name)}</button></div></div>
   </div>
@@ -566,11 +607,10 @@ function addMenu() {
 
 function meCard() {
   const me = S.me || {};
-  if (!me.name) return `<div class="card"><p class="muted">Add your own details, so they’re ready when a doctor, nurse or pharmacy asks who to contact.</p>
+  if (!me.name) return `<div class="card"><p class="muted">My own details, ready when a doctor, nurse or pharmacy asks who to contact.</p>
     <button class="btn" style="margin-top:12px;width:100%" data-act="edit-me">${icon('plus')} Add my details</button></div>`;
   const row = (k, v) => v ? `<dt>${k}</dt><dd>${esc(v)}</dd>` : '';
-  const rows = row('Phone', me.phone) + row('Email', me.email) + row('Address', me.address) + row('Available', me.availability)
-    + row('Stand-in', [me.backupName, me.backupPhone].filter(Boolean).join(' · ')) + row('My notes', me.notes);
+  const rows = row('Phone', me.phone) + row('Email', me.email) + row('Address', me.address) + row('Available', me.availability) + row('Notes', me.notes);
   return `<div class="card">
     <div style="display:flex;gap:14px;align-items:center">${avatar({ ...me, color: me.color || '#a08f7d' })}
       <div style="flex:1;min-width:0"><p class="t" style="font-weight:650">${esc(me.name)}</p><p class="muted small">${esc(me.relation || 'Caregiver')}</p></div>
@@ -581,7 +621,7 @@ function meForm() {
   const me = S.me || {};
   const v = k => esc(me[k] || '');
   const inp = (k, ph = '', type = 'text') => `<input type="${type}" name="${k}" value="${v(k)}" placeholder="${esc(ph)}">`;
-  sheet('About you', `<form id="f">
+  sheet('About me', `<form id="f">
     <div class="photo-pick">
       <div id="ph-prev">${avatar({ ...me, name: me.name || '?', color: '#a08f7d' }, 'xl')}</div>
       <div class="stack" style="flex:1">
@@ -590,13 +630,12 @@ function meForm() {
       </div>
       <input type="hidden" name="photo" value="${v('photo')}">
     </div>
-    ${field('Your name', `<input name="name" required value="${v('name')}" placeholder="e.g. Anna">`)}
-    <div class="grid2">${field('Phone', inp('phone', '', 'tel'))}${field('Email', inp('email', '', 'email'))}</div>
-    ${field('Your address', inp('address', 'Street, town'))}
-    ${field('How you’re related', inp('relation', 'e.g. Daughter'))}
-    ${field('When you’re available', inp('availability', 'e.g. Weekdays after 4 pm, all weekend'))}
-    <div class="grid2">${field('Who stands in for you', inp('backupName', 'e.g. Tom'))}${field('Their phone', inp('backupPhone', '', 'tel'))}</div>
-    ${field('Notes for yourself', `<textarea name="notes" placeholder="e.g. Book my own check-up. Take breaks — you matter too.">${v('notes')}</textarea>`)}
+    ${field('My name', `<input name="name" required value="${v('name')}" placeholder="e.g. Anna">`)}
+    <div class="grid2">${field('My phone', inp('phone', '', 'tel'))}${field('My email', inp('email', '', 'email'))}</div>
+    ${field('My address', inp('address', 'Street, town'))}
+    ${field('How I’m related', inp('relation', 'e.g. Daughter'))}
+    ${field('When I’m available', inp('availability', 'e.g. Weekdays after 4 pm, all weekend'))}
+    ${field('Notes for myself', `<textarea name="notes" placeholder="e.g. Book my own check-up. Take breaks — I matter too.">${v('notes')}</textarea>`)}
     <div style="margin-top:22px"><button class="btn primary big">Save</button></div>
   </form>`, s => {
     const f = $('#f', s);
@@ -610,12 +649,13 @@ function meForm() {
     f.onsubmit = ev => {
       ev.preventDefault();
       S.me = { ...(S.me || {}), ...Object.fromEntries(new FormData(f)) };
+      delete S.me.backupName; delete S.me.backupPhone;
       save(); closeSheet(); render(); toast('Saved');
     };
   });
 }
 
-/* Swipe right on an item in Today's plan to remove it (always asks first). */
+/* Swipe left on an item in Today's plan to remove it (always asks first). */
 function removeItem(el) {
   const kind = el.dataset.swipe, date = el.dataset.date;
   const restore = () => { const r = el.querySelector('.row'); if (r) { r.style.transition = ''; r.style.transform = ''; } el.classList.remove('swiping'); };
@@ -679,12 +719,12 @@ function watchClose(s, fn) {
     const mx = ev.clientX - start.x, my = ev.clientY - start.y;
     if (!active) {
       if (Math.abs(my) > 12 && Math.abs(my) > Math.abs(mx)) { start = null; return; }
-      if (mx > 12 && mx > Math.abs(my) * 1.4) { active = true; el.classList.add('swiping'); row.style.transition = 'none'; }
+      if (mx < -12 && -mx > Math.abs(my) * 1.4) { active = true; el.classList.add('swiping'); row.style.transition = 'none'; }
       else return;
     }
-    dx = Math.max(0, mx);
+    dx = Math.max(0, -mx);
     const eased = dx > LIMIT ? LIMIT + (dx - LIMIT) * 0.35 : dx;
-    row.style.transform = `translateX(${eased}px)`;
+    row.style.transform = `translateX(${-eased}px)`;
     el.classList.toggle('armed', dx > LIMIT);
   });
   const end = () => {
@@ -696,7 +736,7 @@ function watchClose(s, fn) {
     r.style.transition = '';
     window.__swiped = Date.now();
     if (far) {
-      r.style.transform = 'translateX(70%)';
+      r.style.transform = 'translateX(-70%)';
       if (!S.settings.swipeTipDone) { S.settings.swipeTipDone = true; save(); }
       setTimeout(() => removeItem(w), 160);
     } else { r.style.transform = ''; w.classList.remove('swiping'); }
@@ -1160,11 +1200,11 @@ const actions = {
     });
   },
   notify: async () => {
-    if (S.settings.notify) { S.settings.notify = false; save(); render(); toast('Reminders turned off'); return; }
-    if (!('Notification' in window)) { toast('This browser can’t show reminders'); return; }
+    if (S.settings.notify) { S.settings.notify = false; save(); render(); toast('Reminders off'); return; }
+    if (!('Notification' in window)) { toast('Reminders aren’t available here'); return; }
     const perm = await Notification.requestPermission();
-    if (perm === 'granted') { S.settings.notify = true; save(); render(); toast('Reminders on: medicines on time, appointments 1 hour before'); }
-    else toast('Reminders were not allowed in this browser');
+    if (perm === 'granted') { S.settings.notify = true; save(); render(); toast('Reminders on'); }
+    else toast('Reminders blocked in settings');
   },
   export: () => {
     const json = JSON.stringify(S);

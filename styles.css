@@ -373,30 +373,43 @@ img.avatar { object-fit: cover; background: var(--line); }
 @keyframes spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .spin { animation-duration: 3s; } }
 
-/* ---------- Swipe to remove ---------- */
-.swipe { position: relative; border-radius: var(--r); touch-action: pan-y; }
+/* ---------- Swipe to remove (iOS-like) ---------- */
+.swipe { --p: 0; position: relative; border-radius: var(--r); touch-action: pan-y; }
 .swipe + .swipe { margin-top: 10px; }
-.swipe .row { position: relative; z-index: 1; }
-.swipe-bg { position: absolute; inset: 0; border-radius: var(--r); background: var(--rose-soft); color: var(--rose); display: flex; align-items: center; justify-content: flex-end; gap: 8px; padding-right: 22px; font-weight: 650; opacity: 0; }
+.swipe .row { position: relative; z-index: 1; will-change: transform; }
+.swipe-bg { position: absolute; inset: 0; border-radius: var(--r); background: var(--rose-soft); color: var(--rose); display: flex; align-items: center; justify-content: flex-end; gap: 8px; padding-right: 24px; font-weight: 650; opacity: 0; }
+.swipe-bg .ic { width: 26px; height: 26px; transform: scale(calc(.55 + var(--p) * .45)); opacity: calc(.3 + var(--p) * .7); }
+.swipe-bg span { opacity: var(--p); }
 .swipe.swiping .swipe-bg { opacity: 1; }
 .swipe.armed .swipe-bg { background: var(--rose); color: #fff; }
-@media (prefers-reduced-motion: no-preference) { .swipe-bg { transition: opacity .2s, background-color .2s, color .2s; } }
+.swipe.armed .swipe-bg .ic { transform: scale(1.18); opacity: 1; }
+@media (prefers-reduced-motion: no-preference) {
+  .swipe-bg { transition: opacity .2s, background-color .28s ease, color .28s ease; }
+  .swipe-bg .ic { transition: transform .32s cubic-bezier(.3, 1.6, .5, 1), opacity .2s; }
+  .overlay.gentle { animation: fade .45s cubic-bezier(.16, 1, .3, 1); }
+  .overlay.gentle .sheet { animation: rise-soft .6s cubic-bezier(.16, 1, .3, 1); }
+  @keyframes rise-soft { from { transform: translateY(70px); opacity: 0; } to { transform: none; opacity: 1; } }
+}
 .swipe-tip { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: .85rem; color: var(--muted); margin: -2px 2px 10px; }
 .swipe-tip .ic { width: 1em; height: 1em; }
 .swipe-tip .link { padding: 2px 4px; }
 
 /* ---------- Opening screen ---------- */
-.splash { position: fixed; inset: 0; z-index: 100; background: var(--bg); display: grid; place-items: center; text-align: center; padding: 24px; }
-.splash-in { display: flex; flex-direction: column; align-items: center; gap: 6px; }
-.splash .logo { width: 84px; height: 84px; margin-bottom: 14px; }
-.splash h1 { font-size: 1.7rem; letter-spacing: .01em; }
-.splash-me { font-size: 1.1rem; margin-top: 4px; }
+.splash { position: fixed; inset: 0; z-index: 100; background: var(--bg); display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 24px 24px calc(28px + env(safe-area-inset-bottom)); }
+.splash-mid { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px; }
+.splash-hi { font-size: 2rem; font-weight: 650; letter-spacing: -.01em; }
+.splash-who { display: flex; align-items: center; gap: 12px; font-size: 1.15rem; color: var(--muted); }
+.splash-who b { color: var(--ink); font-weight: 650; }
+.splash-foot { display: flex; align-items: center; gap: 10px; color: var(--muted); font-weight: 600; font-size: .95rem; letter-spacing: .02em; }
+.splash-foot .logo { width: 30px; height: 30px; }
 .splash.out { opacity: 0; pointer-events: none; }
 @media (prefers-reduced-motion: no-preference) {
-  .splash { transition: opacity .55s var(--ease); }
-  .splash-in { animation: view-in .7s var(--ease); }
-  .splash .logo { animation: breathe 1.6s ease-in-out; }
-  @keyframes breathe { 0% { transform: scale(.92); opacity: 0; } 45% { transform: scale(1.03); opacity: 1; } 100% { transform: scale(1); } }
+  .splash { transition: opacity .65s cubic-bezier(.4, 0, .2, 1); }
+  .splash-hi { animation: splash-in .8s cubic-bezier(.16, 1, .3, 1) both; }
+  .splash-who { animation: splash-in .8s cubic-bezier(.16, 1, .3, 1) .55s both; }
+  .splash-foot { animation: splash-fade .9s ease .25s both; }
+  @keyframes splash-in { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+  @keyframes splash-fade { from { opacity: 0; } to { opacity: 1; } }
 }
 .swipe .row.done { opacity: 1; }
 .swipe .row.done > * { opacity: .55; }

@@ -25,6 +25,7 @@ const ICONS = {
   chev: '<path d="M9 6l6 6-6 6"/>',
   down: '<path d="M6 9l6 6 6-6"/>',
   x: '<path d="M6 6l12 12M18 6L6 18"/>',
+  trash: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>',
   car: '<path d="M4 17v-5l2-5h12l2 5v5z"/><path d="M4 12h16"/><circle cx="7.5" cy="17" r="1.6"/><circle cx="16.5" cy="17" r="1.6"/>',
   stetho: '<path d="M6 3v6a5 5 0 0 0 10 0V3"/><path d="M11 14v2a4 4 0 0 0 8 0v-2"/><circle cx="19" cy="12" r="2"/>',
   leaf: '<path d="M5 19c0-9 6-14 15-14 0 9-5 15-14 15"/><path d="M5 19l8-8"/>',
@@ -396,7 +397,7 @@ function rowHtml(i, x) {
 
 function swipeWrap(i, inner) {
   const data = i.kind === 'round' ? `data-swipe="round" data-date="${i.date}" data-time="${i.time}"` : `data-swipe="event" data-id="${i.e.id}" data-date="${i.date}"`;
-  return `<div class="swipe" ${data}><div class="swipe-bg" aria-hidden="true"><span>Remove</span>${icon('x')}</div>${inner}</div>`;
+  return `<div class="swipe" ${data}><div class="swipe-bg" aria-hidden="true"><span>Remove</span>${icon('trash')}</div>${inner}</div>`;
 }
 
 /* "Thinking ahead": tomorrow's prep, refills, opening-hour clashes. */
@@ -655,25 +656,54 @@ function meForm() {
   });
 }
 
-/* Swipe left on an item in Today's plan to remove it (always asks first). */
+/* Swipe left on an item in Today's plan to remove it (always asks first).
+   Feels like iOS: the row follows the finger with gentle resistance, the bin icon grows and
+   "pops" when letting go would remove it, the row glides away, and the question rises softly. */
+const SPRING = 'transform .55s cubic-bezier(.3, 1.35, .5, 1)';
+const GLIDE = 'transform .38s cubic-bezier(.4, 0, .2, 1)';
+function springBack(el) {
+  const r = el.querySelector('.row');
+  if (!r) return;
+  r.style.transition = SPRING;
+  r.style.transform = '';
+  el.style.setProperty('--p', 0);
+  setTimeout(() => { el.classList.remove('swiping', 'armed'); r.style.transition = ''; }, 560);
+}
+function collapseThen(el, fn) {
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) { fn(); return; }
+  el.style.height = el.offsetHeight + 'px';
+  el.style.overflow = 'hidden';
+  void el.offsetHeight;
+  el.style.transition = 'height .32s cubic-bezier(.4, 0, .2, 1), margin .32s cubic-bezier(.4, 0, .2, 1), opacity .25s';
+  el.style.height = '0px'; el.style.marginTop = '0px'; el.style.opacity = '0';
+  setTimeout(fn, 330);
+}
 function removeItem(el) {
   const kind = el.dataset.swipe, date = el.dataset.date;
-  const restore = () => { const r = el.querySelector('.row'); if (r) { r.style.transition = ''; r.style.transform = ''; } el.classList.remove('swiping'); };
-  if (kind === 'event') {
-    const e = evById(el.dataset.id);
-    if (!e) return restore();
-    const repeats = e.repeat && e.repeat !== 'none';
-    const s = sheet('Remove from the plan?', `<p style="font-size:1.05rem"><b>${esc(e.title)}</b><br><span class="muted">${relDay(date)}${e.time ? ' · ' + fmtT(e.time) : ''}</span></p>
-      <div class="stack" style="margin-top:20px">
-        ${repeats ? `<button class="btn primary big" data-r="once">Remove just ${relDay(date) === 'Today' ? 'today’s' : 'this one'}</button><button class="btn big danger" data-r="all">Delete all repeats</button>`
-        : '<button class="btn primary big" data-r="all">Yes, delete it</button>'}
-        <button class="btn big" data-r="no">Keep it</button></div>`);
+  let decided = false;
+  const ask = (title, body, onYes) => {
+    const s = sheet(title, body);
+    s.closest('.overlay').classList.add('gentle');
     s.addEventListener('click', ev => {
       const b = ev.target.closest('[data-r]');
       if (!b) return;
-      closeSheet(true);
-      if (b.dataset.r === 'no') { restore(); return; }
-      if (b.dataset.r === 'once') {
+      decided = true;
+      closeSheet();
+      if (b.dataset.r === 'no') { setTimeout(() => springBack(el), 120); return; }
+      collapseThen(el, () => onYes(b.dataset.r));
+    });
+    watchClose(s, () => { if (!decided) setTimeout(() => springBack(el), 60); });
+  };
+  if (kind === 'event') {
+    const e = evById(el.dataset.id);
+    if (!e) return springBack(el);
+    const repeats = e.repeat && e.repeat !== 'none';
+    ask('Remove from the plan?', `<p style="font-size:1.05rem"><b>${esc(e.title)}</b><br><span class="muted">${relDay(date)}${e.time ? ' · ' + fmtT(e.time) : ''}</span></p>
+      <div class="stack" style="margin-top:20px">
+        ${repeats ? `<button class="btn primary big" data-r="once">Remove just ${relDay(date) === 'Today' ? 'today’s' : 'this one'}</button><button class="btn big danger" data-r="all">Delete all repeats</button>`
+        : '<button class="btn primary big" data-r="all">Yes, delete it</button>'}
+        <button class="btn big" data-r="no">Keep it</button></div>`, r => {
+      if (r === 'once') {
         e.skipDates = [...(e.skipDates || []), date]; save(); render();
         toast('Removed for today', () => { e.skipDates = e.skipDates.filter(d => d !== date); save(); render(); });
       } else {
@@ -681,25 +711,18 @@ function removeItem(el) {
         toast('Deleted', () => { S.events.push(e); save(); render(); });
       }
     });
-    watchClose(s, restore);
   } else {
     const time = el.dataset.time;
     const meds = agenda(P().id, date).filter(i => i.kind === 'med' && i.time === time);
-    const s = sheet('Skip these medicines?', `<p style="font-size:1.05rem">Remove the ${fmtT(time)} medicines from ${relDay(date) === 'Today' ? 'today’s' : 'this day’s'} plan:</p>
+    ask('Skip these medicines?', `<p style="font-size:1.05rem">Remove the ${fmtT(time)} medicines from ${relDay(date) === 'Today' ? 'today’s' : 'this day’s'} plan:</p>
       <p class="muted" style="margin-top:6px">${meds.map(i => esc(i.m.name)).join(', ')}</p>
       <p class="small muted" style="margin-top:8px">Only for this day — they’ll show up again as usual afterwards.</p>
-      <div class="stack" style="margin-top:20px"><button class="btn primary big" data-r="yes">Yes, skip them</button><button class="btn big" data-r="no">Keep them</button></div>`);
-    s.addEventListener('click', ev => {
-      const b = ev.target.closest('[data-r]');
-      if (!b) return;
-      closeSheet(true);
-      if (b.dataset.r === 'no') { restore(); return; }
+      <div class="stack" style="margin-top:20px"><button class="btn primary big" data-r="yes">Yes, skip them</button><button class="btn big" data-r="no">Keep them</button></div>`, () => {
       S.skipLog = S.skipLog || {};
       meds.forEach(i => { S.skipLog[i.key] = 1; });
       save(); render();
       toast('Skipped for today', () => { meds.forEach(i => delete S.skipLog[i.key]); save(); render(); });
     });
-    watchClose(s, restore);
   }
 }
 function watchClose(s, fn) {
@@ -707,61 +730,78 @@ function watchClose(s, fn) {
   obs.observe(document.body, { childList: true });
 }
 (function swipeSupport() {
-  let start = null, el = null, row = null, dx = 0, active = false;
-  const LIMIT = 110;
+  let start = null, el = null, row = null, dx = 0, active = false, armed = false, last = null, vel = 0;
+  const LIMIT = 120;
   document.addEventListener('pointerdown', ev => {
     const w = ev.target.closest('.swipe');
-    if (!w || ev.button > 0) return;
-    start = { x: ev.clientX, y: ev.clientY }; el = w; row = w.querySelector('.row'); dx = 0; active = false;
+    if (!w || ev.button > 0 || $('.overlay')) return;
+    start = { x: ev.clientX, y: ev.clientY }; el = w; row = w.querySelector('.row');
+    dx = 0; active = false; armed = false; vel = 0; last = { x: ev.clientX, t: performance.now() };
   });
   document.addEventListener('pointermove', ev => {
     if (!start) return;
     const mx = ev.clientX - start.x, my = ev.clientY - start.y;
     if (!active) {
-      if (Math.abs(my) > 12 && Math.abs(my) > Math.abs(mx)) { start = null; return; }
-      if (mx < -12 && -mx > Math.abs(my) * 1.4) { active = true; el.classList.add('swiping'); row.style.transition = 'none'; }
+      if (Math.abs(my) > 10 && Math.abs(my) > Math.abs(mx)) { start = null; return; }
+      if (mx < -10 && -mx > Math.abs(my) * 1.3) { active = true; el.classList.add('swiping'); row.style.transition = 'none'; }
       else return;
     }
+    const now = performance.now();
+    vel = (ev.clientX - last.x) / Math.max(1, now - last.t); // px per ms, negative = leftwards
+    last = { x: ev.clientX, t: now };
     dx = Math.max(0, -mx);
-    const eased = dx > LIMIT ? LIMIT + (dx - LIMIT) * 0.35 : dx;
+    // Rubber band: easy at first, then heavier past the point of removal.
+    const eased = dx <= LIMIT ? dx : LIMIT + (1 - 1 / ((dx - LIMIT) / 160 + 1)) * 160;
     row.style.transform = `translateX(${-eased}px)`;
-    el.classList.toggle('armed', dx > LIMIT);
+    el.style.setProperty('--p', Math.min(1, dx / LIMIT).toFixed(3));
+    const nowArmed = dx > LIMIT;
+    if (nowArmed !== armed) {
+      armed = nowArmed;
+      el.classList.toggle('armed', armed);
+      if (armed && navigator.vibrate) try { navigator.vibrate(8); } catch (e) { /* not supported */ }
+    }
   });
   const end = () => {
     if (!start) return;
-    const wasActive = active, w = el, r = row, far = dx > LIMIT;
-    start = null; active = false;
+    const wasActive = active, w = el, r = row;
+    const go = armed || (dx > 60 && vel < -0.7); // a quick flick counts too
+    start = null; active = false; armed = false;
     if (!wasActive) return;
-    w.classList.remove('armed');
-    r.style.transition = '';
     window.__swiped = Date.now();
-    if (far) {
-      r.style.transform = 'translateX(-70%)';
+    if (go) {
+      w.classList.add('armed');
+      w.style.setProperty('--p', 1);
+      r.style.transition = GLIDE;
+      r.style.transform = 'translateX(-104%)';
       if (!S.settings.swipeTipDone) { S.settings.swipeTipDone = true; save(); }
-      setTimeout(() => removeItem(w), 160);
-    } else { r.style.transform = ''; w.classList.remove('swiping'); }
+      setTimeout(() => removeItem(w), 300);
+    } else springBack(w);
   };
   document.addEventListener('pointerup', end);
   document.addEventListener('pointercancel', end);
   document.addEventListener('click', ev => { if (window.__swiped && Date.now() - window.__swiped < 400 && ev.target.closest('.swipe')) { ev.stopPropagation(); ev.preventDefault(); } }, true);
 })();
 
-/* Short welcome screen when the app opens. */
+/* Short opening screen: a greeting first, then who I care for, with the app name at the bottom. */
 function splash() {
   const p = P();
-  const me = S.me && S.me.name;
+  const me = S.me && S.me.name ? S.me.name.split(' ')[0] : '';
+  const h = new Date().getHours();
+  const greet = h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening';
   const el = document.createElement('div');
   el.className = 'splash';
   el.setAttribute('aria-hidden', 'true');
-  el.innerHTML = `<div class="splash-in">
-    <svg class="logo" viewBox="0 0 512 512"><rect width="512" height="512" rx="112" fill="#8a7a6a"/><path d="M256 384s-118-70-118-156c0-40 30-68 66-68 24 0 42 12 52 30 10-18 28-30 52-30 36 0 66 28 66 68 0 86-118 156-118 156z" fill="#fffdf9"/></svg>
-    <h1>Care Companion</h1>
-    ${me ? `<p class="splash-me">Welcome back, ${esc(me.split(' ')[0])}</p>` : ''}
-    ${p ? `<p class="muted">caring for ${esc(p.name)}</p>` : ''}
-  </div>`;
+  el.innerHTML = `<div class="splash-mid">
+      <h1 class="splash-hi">${greet}${me ? ', ' + esc(me) : ''}</h1>
+      ${p ? `<div class="splash-who">${avatar(p)}<span>caring for <b>${esc(p.name)}</b></span></div>` : ''}
+    </div>
+    <div class="splash-foot">
+      <svg class="logo" viewBox="0 0 512 512"><rect width="512" height="512" rx="112" fill="#8a7a6a"/><path d="M256 384s-118-70-118-156c0-40 30-68 66-68 24 0 42 12 52 30 10-18 28-30 52-30 36 0 66 28 66 68 0 86-118 156-118 156z" fill="#fffdf9"/></svg>
+      <span>Care Companion</span>
+    </div>`;
   document.body.appendChild(el);
-  setTimeout(() => el.classList.add('out'), 1300);
-  setTimeout(() => el.remove(), 1900);
+  setTimeout(() => el.classList.add('out'), 2100);
+  setTimeout(() => el.remove(), 2800);
 }
 
 /* Person form — grouped into short, collapsible sections */

@@ -4,8 +4,8 @@
   "description": "Medicines, appointments, errands and contacts for the people you care for.",
   "start_url": "./",
   "display": "standalone",
-  "background_color": "#f5f2ec",
-  "theme_color": "#4f7f70",
+  "background_color": "#faf7f2",
+  "theme_color": "#faf7f2",
   "icons": [
     { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
   ]

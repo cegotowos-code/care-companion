@@ -5,51 +5,48 @@
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 const hourLabel = h => new Date(2000, 0, 1, h, 0).toLocaleTimeString([], { hour: 'numeric' });
 
-/* ---------- Date picker: big day buttons for the next two weeks + a month calendar ---------- */
+/* ---------- Date picker: one calm month calendar ---------- */
 function dateField(name, value, { optional = false, emptyLabel = 'No date' } = {}) {
   return `<div class="dp" data-dp data-optional="${optional ? 1 : ''}" data-empty="${esc(emptyLabel)}">
     <input type="hidden" name="${name}" value="${esc(value || '')}"><div class="dp-view"></div></div>`;
 }
-function renderDP(el) {
+function renderDP(el, dir) {
   const inp = el.querySelector('input');
   const v = inp.value, opt = el.dataset.optional === '1', t = today();
-  const open = el.dataset.open === '1';
-  let html = `<p class="dp-sel">${icon('calendar')}<span>${v ? `${esc(relDay(v) === fmtD(v) ? '' : relDay(v) + ', ')}${fmtD(v, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}` : esc(el.dataset.empty)}</span></p>`;
-  if (!opt) {
-    html += '<div class="dp-strip">';
-    for (let k = 0; k < 21; k++) {
-      const d = addDays(t, k), dd = parseDs(d);
-      html += `<button type="button" class="dp-day ${d === v ? 'on' : ''}" data-pick="${d}" aria-pressed="${d === v}" aria-label="${fmtD(d)}">
-        <small>${k === 0 ? 'Today' : k === 1 ? 'Tmrw' : DAYS[dd.getDay()]}</small><b>${dd.getDate()}</b><small>${MONTHS[dd.getMonth()].slice(0, 3)}</small></button>`;
-    }
-    html += '</div>';
-  } else {
-    html += `<div class="chips" style="margin-top:8px"><button type="button" class="chip ${!v ? 'on' : ''}" data-pick="">${esc(el.dataset.empty)}</button></div>`;
+  const on = !opt || !!v || el.dataset.open === '1';
+  let html = '';
+  if (opt) {
+    html += `<div class="toggle-row"><span>${v ? fmtD(v, { weekday: 'long', day: 'numeric', month: 'long' }) : esc(el.dataset.empty)}</span>
+      <button type="button" class="switch ${on ? 'on' : ''}" data-dp-switch role="switch" aria-checked="${on}" aria-label="Choose a date"><i></i></button></div>`;
   }
-  html += `<button type="button" class="link" data-cal-toggle>${open ? 'Hide calendar' : opt ? 'Choose a date' : 'Another date…'}</button>`;
-  if (open) {
+  if (on) {
     const base = el.dataset.month || (v || t).slice(0, 7);
     const [y, m] = base.split('-').map(Number);
-    const first = new Date(y, m - 1, 1);
-    const lead = (first.getDay() + 6) % 7; // weeks start on Monday
+    const lead = (new Date(y, m - 1, 1).getDay() + 6) % 7; // weeks start on Monday
     const n = new Date(y, m, 0).getDate();
-    html += `<div class="cal"><div class="cal-head">
-      <button type="button" class="iconbtn" data-cal-nav="-1" aria-label="Previous month">${icon('chev', 'flip')}</button>
-      <b>${MONTHS[m - 1]} ${y}</b>
-      <button type="button" class="iconbtn" data-cal-nav="1" aria-label="Next month">${icon('chev')}</button></div>
-      <div class="cal-grid">${WEEK.map(d => `<span class="cal-wd">${DAYS[d].slice(0, 2)}</span>`).join('')}${'<span></span>'.repeat(lead)}`;
+    let cells = WEEK.map(d => `<span class="cal-wd">${DAYS[d].slice(0, 1)}</span>`).join('') + '<span></span>'.repeat(lead);
     for (let d = 1; d <= n; d++) {
       const s = `${y}-${pad(m)}-${pad(d)}`;
-      html += `<button type="button" class="cal-d ${s === v ? 'on' : ''} ${s === t ? 'today' : ''}" data-pick="${s}" aria-label="${fmtD(s)}">${d}</button>`;
+      cells += `<button type="button" class="cal-d ${s === v ? 'on' : ''} ${s === t ? 'today' : ''} ${s < t ? 'past' : ''}" data-pick="${s}" aria-label="${fmtD(s)}" aria-pressed="${s === v}">${d}</button>`;
     }
-    html += '</div></div>';
+    const showToday = base !== t.slice(0, 7);
+    const long = v ? fmtD(v, { weekday: 'long', day: 'numeric', month: 'long' }) : '';
+    const label = v && !opt ? (relDay(v) === fmtD(v) ? long : relDay(v) + ' · ' + long) : '';
+    html += `<div class="cal ${opt ? 'inset' : ''}">
+      <div class="cal-head">
+        <button type="button" class="iconbtn" data-cal-nav="-1" aria-label="Previous month">${icon('chev', 'flip')}</button>
+        <b>${MONTHS[m - 1]} <span class="muted">${y}</span></b>
+        <button type="button" class="iconbtn" data-cal-nav="1" aria-label="Next month">${icon('chev')}</button>
+      </div>
+      <div class="cal-grid ${dir ? (dir > 0 ? 'from-r' : 'from-l') : ''}">${cells}</div>
+      <div class="cal-foot"><span class="small">${esc(label)}</span>
+        ${showToday ? '<button type="button" class="link small" data-cal-today>Back to today</button>' : ''}</div>
+    </div>`;
   }
   el.querySelector('.dp-view').innerHTML = html;
-  const on = el.querySelector('.dp-strip .on');
-  if (on) { const st = on.parentElement; st.scrollLeft = on.offsetLeft - st.clientWidth / 2 + on.clientWidth / 2; }
 }
 
-/* Birthday: three plain, large dropdowns (calendars are slow for years long ago). */
+/* Birthday: three plain dropdowns (a calendar is slow for years long ago). */
 function birthField(value) {
   const [y, m, d] = (value || '').split('-').map(Number);
   const yNow = new Date().getFullYear();
@@ -65,35 +62,77 @@ function readBirth(fd) {
   return d && m && y ? `${y}-${pad(m)}-${pad(d)}` : '';
 }
 
-/* ---------- Time picker: tap the hour, then the minutes ---------- */
+/* ---------- Time picker: scroll wheels, like a phone alarm ---------- */
+const IS12 = /[ap]\.?\s?m/i.test(new Date(2000, 0, 1, 13).toLocaleTimeString([], { hour: 'numeric' }));
+const WHEEL_ROW = 44;
 function timeField(name, value, { optional = false, open = false } = {}) {
   return `<div class="tp" data-tp data-optional="${optional ? 1 : ''}" data-open="${open ? 1 : ''}">
     <input type="hidden" name="${name}" value="${esc(value || '')}"><div class="tp-view"></div></div>`;
 }
+function wheelCols(v) {
+  const [h, m] = (v || '09:00').split(':').map(Number);
+  const mi = Math.round(m / 5) % 12;
+  const cols = [];
+  if (IS12) cols.push({ key: 'h', label: 'Hour', items: Array.from({ length: 12 }, (_, i) => String(i + 1)), idx: (h % 12 || 12) - 1 });
+  else cols.push({ key: 'h', label: 'Hour', items: Array.from({ length: 24 }, (_, i) => pad(i)), idx: h });
+  cols.push({ key: 'm', label: 'Minutes', items: Array.from({ length: 12 }, (_, i) => pad(i * 5)), idx: mi });
+  if (IS12) cols.push({ key: 'ap', label: 'AM or PM', items: ['AM', 'PM'], idx: h >= 12 ? 1 : 0 });
+  return cols;
+}
 function renderTP(el) {
-  const v = el.querySelector('input').value, open = el.dataset.open === '1', opt = el.dataset.optional === '1';
-  const [vh, vm] = v ? v.split(':').map(Number) : [null, null];
-  let html = `<button type="button" class="tp-btn ${v ? '' : 'empty'}" data-tp-toggle aria-expanded="${open}">${icon('clock')}<span>${v ? fmtT(v) : opt ? 'No set time' : 'Choose a time'}</span><small>${open ? 'Close' : 'Change'}</small></button>`;
+  const inp = el.querySelector('input');
+  const open = el.dataset.open === '1', opt = el.dataset.optional === '1';
+  if (open && !inp.value) inp.value = '09:00';
+  const v = inp.value;
+  let html = `<button type="button" class="tp-btn ${v ? '' : 'empty'}" data-tp-toggle aria-expanded="${open}">${icon('clock')}<span class="tp-val">${v ? fmtT(v) : opt ? 'No set time' : 'Choose a time'}</span>${icon('down', open ? 'flip' : '')}</button>`;
   if (open) {
-    const night = el.dataset.night === '1' || (vh !== null && (vh >= 23 || vh < 6));
-    const groups = [['Morning', [6, 7, 8, 9, 10, 11]], ['Afternoon', [12, 13, 14, 15, 16, 17]], ['Evening', [18, 19, 20, 21, 22]]];
-    if (night) groups.push(['Night', [23, 0, 1, 2, 3, 4, 5]]);
-    html += `<div class="tp-panel"><p class="tp-step">1. Hour</p>${groups.map(([g, hs]) => `<div class="tp-group"><span>${g}</span><div class="tp-hours">${hs.map(h =>
-      `<button type="button" class="tp-h ${h === vh ? 'on' : ''}" data-h="${h}">${hourLabel(h)}</button>`).join('')}</div></div>`).join('')}
-      ${night ? '' : '<button type="button" class="link small" data-tp-night>Show night hours</button>'}
-      <p class="tp-step">2. Minutes</p><div class="tp-mins">${[0, 15, 30, 45].map(mi =>
-        `<button type="button" class="tp-m ${mi === vm ? 'on' : ''}" data-mi="${mi}">:${pad(mi)}</button>`).join('')}</div>
-      ${vm !== null && vm % 15 ? '' : `<details class="tp-more"><summary>Other minutes</summary><div class="tp-mins five">${Array.from({ length: 12 }, (_, i) => i * 5).filter(x => x % 15).map(mi =>
-        `<button type="button" class="tp-m" data-mi="${mi}">:${pad(mi)}</button>`).join('')}</div></details>`}
-      <div class="actions" style="margin-top:12px">${opt ? '<button type="button" class="btn sm" data-tp-clear>No set time</button>' : ''}<button type="button" class="btn sm primary" data-tp-toggle>Done</button></div>
-    </div>`;
+    html += `<div class="tp-panel"><div class="wheels"><div class="wheel-band" aria-hidden="true"></div>${wheelCols(v).map(c =>
+      `<div class="wheel ${c.key === 'ap' ? 'narrow' : ''}" data-col="${c.key}" tabindex="0" role="listbox" aria-label="${c.label}">
+        <div class="wheel-pad"></div>${c.items.map((x, i) => `<div class="wheel-item" data-i="${i}" role="option">${x}</div>`).join('')}<div class="wheel-pad"></div></div>`).join('')}</div>
+      <div class="actions tp-actions">${opt ? '<button type="button" class="btn sm" data-tp-clear>No set time</button>' : ''}<button type="button" class="btn sm primary" data-tp-toggle>Done</button></div></div>`;
   }
   el.querySelector('.tp-view').innerHTML = html;
+  if (open) setupWheels(el, v);
+}
+function setupWheels(el, v) {
+  const inp = el.querySelector('input');
+  const cols = wheelCols(v);
+  const read = () => {
+    const idx = $$('.wheel', el).map(w => Math.round(w.scrollTop / WHEEL_ROW));
+    let h = idx[0];
+    const m = (idx[1] || 0) * 5;
+    if (IS12) h = (idx[0] + 1) % 12 + (idx[2] === 1 ? 12 : 0);
+    inp.value = pad(h) + ':' + pad(m);
+    el.querySelector('.tp-val').textContent = fmtT(inp.value);
+    el.querySelector('.tp-btn').classList.remove('empty');
+    inp.dispatchEvent(new Event('change', { bubbles: true }));
+  };
+  $$('.wheel', el).forEach((w, ci) => {
+    const items = $$('.wheel-item', w);
+    const mark = i => items.forEach((it, k) => { it.classList.toggle('sel', k === i); it.setAttribute('aria-selected', String(k === i)); });
+    w.scrollTop = cols[ci].idx * WHEEL_ROW;
+    mark(cols[ci].idx);
+    let t;
+    w.addEventListener('scroll', () => {
+      mark(Math.max(0, Math.min(items.length - 1, Math.round(w.scrollTop / WHEEL_ROW))));
+      clearTimeout(t);
+      t = setTimeout(read, 90);
+    }, { passive: true });
+    w.addEventListener('click', ev => {
+      const it = ev.target.closest('.wheel-item');
+      if (it) w.scrollTo({ top: +it.dataset.i * WHEEL_ROW, behavior: 'smooth' });
+    });
+    w.addEventListener('keydown', ev => {
+      if (ev.key !== 'ArrowDown' && ev.key !== 'ArrowUp') return;
+      ev.preventDefault();
+      w.scrollBy({ top: ev.key === 'ArrowDown' ? WHEEL_ROW : -WHEEL_ROW, behavior: 'smooth' });
+    });
+  });
 }
 
 /* Wire all pickers inside a container (event delegation, so rows added later work too). */
 function initPickers(root) {
-  $$('[data-dp]', root).forEach(renderDP);
+  $$('[data-dp]', root).forEach(el => renderDP(el));
   $$('[data-tp]', root).forEach(renderTP);
   if (root.dataset.pickers) return;
   root.dataset.pickers = '1';
@@ -104,30 +143,31 @@ function initPickers(root) {
       const pick = ev.target.closest('[data-pick]');
       if (pick) {
         inp.value = pick.dataset.pick;
-        if (pick.classList.contains('cal-d')) dp.dataset.open = '';
         renderDP(dp); inp.dispatchEvent(new Event('change', { bubbles: true }));
-      } else if (ev.target.closest('[data-cal-toggle]')) {
-        dp.dataset.open = dp.dataset.open === '1' ? '' : '1'; dp.dataset.month = ''; renderDP(dp);
+      } else if (ev.target.closest('[data-dp-switch]')) {
+        const isOn = !!inp.value || dp.dataset.open === '1';
+        dp.dataset.open = isOn ? '' : '1';
+        if (isOn) inp.value = '';
+        renderDP(dp);
+      } else if (ev.target.closest('[data-cal-today]')) {
+        dp.dataset.month = today().slice(0, 7); renderDP(dp);
       } else if (ev.target.closest('[data-cal-nav]')) {
+        const step = +ev.target.closest('[data-cal-nav]').dataset.calNav;
         const base = dp.dataset.month || (inp.value || today()).slice(0, 7);
         const [y, m] = base.split('-').map(Number);
-        const d = new Date(y, m - 1 + +ev.target.closest('[data-cal-nav]').dataset.calNav, 1);
-        dp.dataset.month = `${d.getFullYear()}-${pad(d.getMonth() + 1)}`; renderDP(dp);
+        const d = new Date(y, m - 1 + step, 1);
+        dp.dataset.month = `${d.getFullYear()}-${pad(d.getMonth() + 1)}`; renderDP(dp, step);
       }
       return;
     }
     const tp = ev.target.closest('[data-tp]');
     if (!tp) return;
-    const inp = tp.querySelector('input');
-    const [h, m] = inp.value ? inp.value.split(':').map(Number) : [null, 0];
-    const set = (hh, mm) => { inp.value = pad(hh) + ':' + pad(mm); inp.dispatchEvent(new Event('change', { bubbles: true })); };
-    const hb = ev.target.closest('[data-h]'), mb = ev.target.closest('[data-mi]');
-    if (hb) set(+hb.dataset.h, m || 0);
-    else if (mb) { set(h ?? 8, +mb.dataset.mi); tp.dataset.open = ''; }
-    else if (ev.target.closest('[data-tp-night]')) tp.dataset.night = '1';
-    else if (ev.target.closest('[data-tp-clear]')) { inp.value = ''; tp.dataset.open = ''; }
-    else if (ev.target.closest('[data-tp-toggle]')) tp.dataset.open = tp.dataset.open === '1' ? '' : '1';
-    else return;
+    if (ev.target.closest('[data-tp-clear]')) { tp.querySelector('input').value = ''; tp.dataset.open = ''; }
+    else if (ev.target.closest('[data-tp-toggle]')) {
+      const opening = tp.dataset.open !== '1';
+      if (opening) $$('[data-tp][data-open="1"]', root).forEach(o => { if (o !== tp) { o.dataset.open = ''; renderTP(o); } });
+      tp.dataset.open = opening ? '1' : '';
+    } else return;
     renderTP(tp);
   });
 }

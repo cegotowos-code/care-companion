@@ -5,7 +5,7 @@ const KEY = 'care-companion-v1';
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const DAYS_LONG = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const WEEK = [1, 2, 3, 4, 5, 6, 0];
-const COLORS = ['#6f9a8b', '#a88d6c', '#7f91b5', '#b98a8a', '#8fa572', '#9a8bb8'];
+const COLORS = ['#a08f7d', '#8f9aa6', '#b59a8a', '#9aa58f', '#a99bb0', '#b3a27f'];
 const ROLES = ['Family doctor', 'Specialist', 'Dentist', 'Pharmacy', 'Hospital', 'Therapist', 'Care service', 'Family', 'Neighbour', 'Other'];
 
 /* ---------- Icons ---------- */
@@ -67,7 +67,7 @@ const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
 const avatar = (p, cls = '') => p.photo ? `<img class="avatar ${cls}" src="${esc(p.photo)}" alt="">` : `<span class="avatar ${cls}" style="--c:${esc(p.color)}">${esc(initials(p.name))}</span>`;
 
 /* ---------- State ---------- */
-const blank = () => ({ people: [], contacts: [], meds: [], events: [], medLog: {}, prnLog: [], activeId: null, settings: { notify: false } });
+const blank = () => ({ people: [], contacts: [], meds: [], events: [], medLog: {}, prnLog: [], skipLog: {}, me: {}, activeId: null, settings: { notify: false } });
 function load() {
   try {
     const d = JSON.parse(localStorage.getItem(KEY));
@@ -129,6 +129,7 @@ const logKey = (date, mid, t) => `${date}|${mid}|${t}`;
 
 function evOn(e, date) {
   if (date < e.date) return false;
+  if ((e.skipDates || []).includes(date)) return false;
   if (date === e.date) return true;
   if (e.until && date > e.until) return false;
   if (e.repeat === 'daily') return true;
@@ -141,7 +142,7 @@ const evDone = (e, date) => (e.doneDates || []).includes(date);
 function agenda(pid, date) {
   const items = [];
   medsOf(pid).filter(m => medOn(m, date)).forEach(m =>
-    (m.times || []).forEach(t => items.push({ kind: 'med', time: t, m, date, key: logKey(date, m.id, t), done: !!S.medLog[logKey(date, m.id, t)] })));
+    (m.times || []).filter(t => !(S.skipLog || {})[logKey(date, m.id, t)]).forEach(t => items.push({ kind: 'med', time: t, m, date, key: logKey(date, m.id, t), done: !!S.medLog[logKey(date, m.id, t)] })));
   eventsOf(pid).filter(e => evOn(e, date)).forEach(e => items.push({ kind: 'event', time: e.time || '', e, date, done: evDone(e, date) }));
   return items.sort((a, b) => (a.time || '99').localeCompare(b.time || '99'));
 }
@@ -224,29 +225,38 @@ function toast(msg, undo) {
 }
 
 /* ---------- Rendering ---------- */
+const NAV = [['today', 'home', 'Today'], ['plan', 'calendar', 'Plan'], ['meds', 'pill', 'Medicines'], ['contacts', 'book', 'Contacts'], ['about', 'user', 'About']];
+let shownView = null;
 function render() {
   const app = $('#app');
-  if (!S.people.length) { app.innerHTML = vWelcome(); return; }
+  if (!S.people.length) { app.innerHTML = vWelcome(); shownView = null; return; }
   const p = P();
   if (S.activeId !== p.id) { S.activeId = p.id; save(); }
   const views = { today: vToday, plan: vPlan, meds: vMeds, contacts: vContacts, about: vAbout };
-  const navItems = [['today', 'home', 'Today'], ['plan', 'calendar', 'Plan'], ['meds', 'pill', 'Medicines'], ['contacts', 'book', 'Contacts'], ['about', 'user', 'About']];
-  app.innerHTML = `
-    <header class="top">
-      <button class="who" data-act="switch-person" aria-label="Caring for ${esc(p.name)}. Switch person">
-        ${avatar(p)}
-        <span><small>Caring for</small><b>${esc(p.name)}</b></span>${icon('down')}
-      </button>
-    </header>
-    <main id="main">${views[view](p)}</main>
-    <button class="fab" data-act="add" aria-label="Add something">${icon('plus')}</button>
-    <nav class="nav" aria-label="Main"><ul>${navItems.map(([v, i, l]) =>
-      `<li><button data-act="nav" data-v="${v}" ${view === v ? 'aria-current="page"' : ''}>${icon(i)}<span>${l}</span></button></li>`).join('')}</ul></nav>`;
+  if (!$('#shell')) {
+    app.innerHTML = `<div id="shell">
+      <header class="top" id="top"></header>
+      <main id="main"></main>
+      <button class="fab" data-act="add" aria-label="Add something">${icon('plus')}</button>
+      <nav class="nav" aria-label="Main"><ul><li class="nav-ind" aria-hidden="true"></li>${NAV.map(([v, i, l]) =>
+        `<li><button data-act="nav" data-v="${v}">${icon(i)}<span>${l}</span></button></li>`).join('')}</ul></nav></div>`;
+  }
+  $('#top').innerHTML = `<button class="who" data-act="switch-person" aria-label="Caring for ${esc(p.name)}. Switch person">
+      ${avatar(p)}<span><small>Caring for</small><b>${esc(p.name)}</b></span>${icon('down')}</button>`;
+  const main = $('#main');
+  main.innerHTML = views[view](p);
+  if (shownView !== view) {
+    main.classList.remove('enter'); void main.offsetWidth; main.classList.add('enter');
+    shownView = view;
+  }
+  const idx = NAV.findIndex(n => n[0] === view);
+  $('.nav ul').style.setProperty('--i', idx);
+  $$('.nav [data-act=nav]').forEach(b => { if (b.dataset.v === view) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current'); });
 }
 
 function vWelcome() {
   return `<div class="welcome">
-    <svg class="logo" viewBox="0 0 512 512" aria-hidden="true"><rect width="512" height="512" rx="112" fill="#4f7f70"/><path d="M256 384s-118-70-118-156c0-40 30-68 66-68 24 0 42 12 52 30 10-18 28-30 52-30 36 0 66 28 66 68 0 86-118 156-118 156z" fill="#fffdf9"/></svg>
+    <svg class="logo" viewBox="0 0 512 512" aria-hidden="true"><rect width="512" height="512" rx="112" fill="#8a7a6a"/><path d="M256 384s-118-70-118-156c0-40 30-68 66-68 24 0 42 12 52 30 10-18 28-30 52-30 36 0 66 28 66 68 0 86-118 156-118 156z" fill="#fffdf9"/></svg>
     <h1>Care Companion</h1>
     <p class="lead">A calm place for everything you need to remember while caring for someone.</p>
     <ul>
@@ -255,6 +265,8 @@ function vWelcome() {
       <li>Doctors with phone numbers, directions and opening hours</li>
     </ul>
     <form id="welcome-form">
+      <label class="field"><span>Your first name</span>
+        <input name="me" placeholder="So the app can greet you" autocomplete="given-name"></label>
       <label class="field"><span>Who are you caring for?</span>
         <input name="name" required placeholder="e.g. Mum, Dad, Grandpa Joe" autocomplete="off"></label>
       <div style="margin-top:16px"><button class="btn primary big">Get started</button></div>
@@ -270,11 +282,13 @@ function vToday(p) {
   const items = grouped(agenda(p.id, t));
   const h = new Date().getHours();
   const greet = h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening';
-  let html = `<div class="hello"><p class="muted">${fmtD(t)}</p><h1>${greet}</h1></div>`;
+  const myName = (S.me && S.me.name) ? ', ' + esc(S.me.name.split(' ')[0]) : '';
+  let html = `<div class="hello"><p class="muted">${fmtD(t)}</p><h1>${greet}${myName}</h1></div>`;
   if (p.allergies) html += `<div class="keyinfo">${icon('alert')}<span><b>Allergies:</b> ${esc(p.allergies)}</span></div>`;
   html += nextUp(p, items, x);
   html += `<h2 class="sec">Today’s plan <span class="small">${items.filter(i => i.done).length} of ${items.length} done</span></h2>`;
-  html += items.length ? items.map(i => rowHtml(i, x)).join('') :
+  if (items.length && !S.settings.swipeTipDone) html += `<p class="swipe-tip">${icon('chev')} Tip: swipe an item to the right to remove it <button class="link small" data-act="swipe-tip">Got it</button></p>`;
+  html += items.length ? items.map(i => swipeWrap(i, rowHtml(i, x))).join('') :
     `<div class="card empty">${icon('leaf')}<p>Nothing planned for today.</p><button class="btn" data-act="add">Add something</button></div>`;
   const hu = headsUp(p);
   if (hu.length) html += `<h2 class="sec">Thinking ahead</h2><div class="stack">${hu.join('')}</div>`;
@@ -337,6 +351,11 @@ function rowHtml(i, x) {
       ${sub ? `<p class="sub">${esc(sub)}</p>` : ''}</button></div>
     <button class="check ${i.done ? 'on' : ''}" data-act="toggle-ev" data-id="${e.id}" data-date="${i.date}" aria-pressed="${i.done}" aria-label="Mark ${esc(e.title)} as done">${icon('check')}</button>
   </div>`;
+}
+
+function swipeWrap(i, inner) {
+  const data = i.kind === 'round' ? `data-swipe="round" data-date="${i.date}" data-time="${i.time}"` : `data-swipe="event" data-id="${i.e.id}" data-date="${i.date}"`;
+  return `<div class="swipe" ${data}><div class="swipe-bg" aria-hidden="true">${icon('x')}<span>Remove</span></div>${inner}</div>`;
 }
 
 /* "Thinking ahead": tomorrow's prep, refills, opening-hour clashes. */
@@ -476,6 +495,8 @@ function vAbout(p) {
       <button class="btn big" data-act="print">${icon('print')} Summary for the doctor</button>
       ${canNotify() ? `<button class="btn big" data-act="notify">${icon('bell')} ${S.settings.notify ? 'Reminders are on' : 'Turn on reminders'}</button>` : ''}
     </div>
+    <h2 class="sec">About you, the caregiver</h2>
+    ${meCard()}
     <h2 class="sec">People you care for</h2>
     <div class="card"><div class="stack">${S.people.map(x => `<button class="item" data-act="pick-person" data-id="${x.id}">${avatar(x)}<span class="body"><p class="t">${esc(x.name)}</p><p class="s">${x.id === p.id ? 'Selected' : 'Tap to switch'}</p></span></button>`).join('')}</div>
     <button class="btn" style="margin-top:12px;width:100%" data-act="add-person">${icon('plus')} Add someone</button></div>
@@ -507,6 +528,7 @@ function sheet(title, body, onMount) {
     <div class="sheet-head"><h2>${esc(title)}</h2><button class="iconbtn" data-close aria-label="Close">${icon('x')}</button></div>
     <div class="sheet-body">${body}</div></div>`;
   el.addEventListener('click', e => { if (e.target === el || e.target.closest('[data-close]')) closeSheet(); });
+  $$('.overlay').forEach(o => o.remove());
   document.body.appendChild(el);
   document.body.classList.add('noscroll');
   const s = el.querySelector('.sheet');
@@ -517,7 +539,12 @@ function sheet(title, body, onMount) {
   return s;
 }
 function closeSheet(silent) {
-  $$('.overlay').forEach(o => o.remove());
+  $$('.overlay').forEach(o => {
+    if (silent || matchMedia('(prefers-reduced-motion: reduce)').matches) { o.remove(); return; }
+    if (o.classList.contains('closing')) return;
+    o.classList.add('closing');
+    setTimeout(() => o.remove(), 240);
+  });
   document.body.classList.remove('noscroll');
   if (!silent && lastFocus && document.contains(lastFocus)) lastFocus.focus();
 }
@@ -535,6 +562,166 @@ function addMenu() {
     <button class="choice" data-act="add-med"><span class="ibadge">${icon('pill')}</span><b>Medicine</b><small>What, how much, when</small></button>
     <button class="choice" data-act="add-contact"><span class="ibadge">${icon('book')}</span><b>Contact or place</b><small>Phone, address, opening hours</small></button>
   </div>`);
+}
+
+function meCard() {
+  const me = S.me || {};
+  if (!me.name) return `<div class="card"><p class="muted">Add your own details, so they’re ready when a doctor, nurse or pharmacy asks who to contact.</p>
+    <button class="btn" style="margin-top:12px;width:100%" data-act="edit-me">${icon('plus')} Add my details</button></div>`;
+  const row = (k, v) => v ? `<dt>${k}</dt><dd>${esc(v)}</dd>` : '';
+  const rows = row('Phone', me.phone) + row('Email', me.email) + row('Address', me.address) + row('Available', me.availability)
+    + row('Stand-in', [me.backupName, me.backupPhone].filter(Boolean).join(' · ')) + row('My notes', me.notes);
+  return `<div class="card">
+    <div style="display:flex;gap:14px;align-items:center">${avatar({ ...me, color: me.color || '#a08f7d' })}
+      <div style="flex:1;min-width:0"><p class="t" style="font-weight:650">${esc(me.name)}</p><p class="muted small">${esc(me.relation || 'Caregiver')}</p></div>
+      <button class="btn sm" data-act="edit-me">Edit</button></div>
+    ${rows ? `<dl class="dl" style="margin-top:14px">${rows}</dl>` : ''}</div>`;
+}
+function meForm() {
+  const me = S.me || {};
+  const v = k => esc(me[k] || '');
+  const inp = (k, ph = '', type = 'text') => `<input type="${type}" name="${k}" value="${v(k)}" placeholder="${esc(ph)}">`;
+  sheet('About you', `<form id="f">
+    <div class="photo-pick">
+      <div id="ph-prev">${avatar({ ...me, name: me.name || '?', color: '#a08f7d' }, 'xl')}</div>
+      <div class="stack" style="flex:1">
+        <label class="btn sm">${icon('user')} ${me.photo ? 'Change photo' : 'Add a photo'}<input type="file" accept="image/*" hidden id="ph-in"></label>
+        <button type="button" class="link small" id="ph-rm" ${me.photo ? '' : 'hidden'}>Remove photo</button>
+      </div>
+      <input type="hidden" name="photo" value="${v('photo')}">
+    </div>
+    ${field('Your name', `<input name="name" required value="${v('name')}" placeholder="e.g. Anna">`)}
+    <div class="grid2">${field('Phone', inp('phone', '', 'tel'))}${field('Email', inp('email', '', 'email'))}</div>
+    ${field('Your address', inp('address', 'Street, town'))}
+    ${field('How you’re related', inp('relation', 'e.g. Daughter'))}
+    ${field('When you’re available', inp('availability', 'e.g. Weekdays after 4 pm, all weekend'))}
+    <div class="grid2">${field('Who stands in for you', inp('backupName', 'e.g. Tom'))}${field('Their phone', inp('backupPhone', '', 'tel'))}</div>
+    ${field('Notes for yourself', `<textarea name="notes" placeholder="e.g. Book my own check-up. Take breaks — you matter too.">${v('notes')}</textarea>`)}
+    <div style="margin-top:22px"><button class="btn primary big">Save</button></div>
+  </form>`, s => {
+    const f = $('#f', s);
+    const preview = () => { $('#ph-prev', s).innerHTML = avatar({ name: f.name.value || '?', photo: f.photo.value, color: '#a08f7d' }, 'xl'); $('#ph-rm', s).hidden = !f.photo.value; };
+    $('#ph-in', s).onchange = async ev => {
+      const file = ev.target.files[0];
+      if (!file) return;
+      try { f.photo.value = await resizePhoto(file); preview(); } catch (e) { toast('That picture couldn’t be opened. Please try another one.'); }
+    };
+    $('#ph-rm', s).onclick = () => { f.photo.value = ''; preview(); };
+    f.onsubmit = ev => {
+      ev.preventDefault();
+      S.me = { ...(S.me || {}), ...Object.fromEntries(new FormData(f)) };
+      save(); closeSheet(); render(); toast('Saved');
+    };
+  });
+}
+
+/* Swipe right on an item in Today's plan to remove it (always asks first). */
+function removeItem(el) {
+  const kind = el.dataset.swipe, date = el.dataset.date;
+  const restore = () => { const r = el.querySelector('.row'); if (r) { r.style.transition = ''; r.style.transform = ''; } el.classList.remove('swiping'); };
+  if (kind === 'event') {
+    const e = evById(el.dataset.id);
+    if (!e) return restore();
+    const repeats = e.repeat && e.repeat !== 'none';
+    const s = sheet('Remove from the plan?', `<p style="font-size:1.05rem"><b>${esc(e.title)}</b><br><span class="muted">${relDay(date)}${e.time ? ' · ' + fmtT(e.time) : ''}</span></p>
+      <div class="stack" style="margin-top:20px">
+        ${repeats ? `<button class="btn primary big" data-r="once">Remove just ${relDay(date) === 'Today' ? 'today’s' : 'this one'}</button><button class="btn big danger" data-r="all">Delete all repeats</button>`
+        : '<button class="btn primary big" data-r="all">Yes, delete it</button>'}
+        <button class="btn big" data-r="no">Keep it</button></div>`);
+    s.addEventListener('click', ev => {
+      const b = ev.target.closest('[data-r]');
+      if (!b) return;
+      closeSheet(true);
+      if (b.dataset.r === 'no') { restore(); return; }
+      if (b.dataset.r === 'once') {
+        e.skipDates = [...(e.skipDates || []), date]; save(); render();
+        toast('Removed for today', () => { e.skipDates = e.skipDates.filter(d => d !== date); save(); render(); });
+      } else {
+        S.events = S.events.filter(x => x !== e); save(); render();
+        toast('Deleted', () => { S.events.push(e); save(); render(); });
+      }
+    });
+    watchClose(s, restore);
+  } else {
+    const time = el.dataset.time;
+    const meds = agenda(P().id, date).filter(i => i.kind === 'med' && i.time === time);
+    const s = sheet('Skip these medicines?', `<p style="font-size:1.05rem">Remove the ${fmtT(time)} medicines from ${relDay(date) === 'Today' ? 'today’s' : 'this day’s'} plan:</p>
+      <p class="muted" style="margin-top:6px">${meds.map(i => esc(i.m.name)).join(', ')}</p>
+      <p class="small muted" style="margin-top:8px">Only for this day — they’ll show up again as usual afterwards.</p>
+      <div class="stack" style="margin-top:20px"><button class="btn primary big" data-r="yes">Yes, skip them</button><button class="btn big" data-r="no">Keep them</button></div>`);
+    s.addEventListener('click', ev => {
+      const b = ev.target.closest('[data-r]');
+      if (!b) return;
+      closeSheet(true);
+      if (b.dataset.r === 'no') { restore(); return; }
+      S.skipLog = S.skipLog || {};
+      meds.forEach(i => { S.skipLog[i.key] = 1; });
+      save(); render();
+      toast('Skipped for today', () => { meds.forEach(i => delete S.skipLog[i.key]); save(); render(); });
+    });
+    watchClose(s, restore);
+  }
+}
+function watchClose(s, fn) {
+  const obs = new MutationObserver(() => { if (!document.contains(s)) { obs.disconnect(); fn(); } });
+  obs.observe(document.body, { childList: true });
+}
+(function swipeSupport() {
+  let start = null, el = null, row = null, dx = 0, active = false;
+  const LIMIT = 110;
+  document.addEventListener('pointerdown', ev => {
+    const w = ev.target.closest('.swipe');
+    if (!w || ev.button > 0) return;
+    start = { x: ev.clientX, y: ev.clientY }; el = w; row = w.querySelector('.row'); dx = 0; active = false;
+  });
+  document.addEventListener('pointermove', ev => {
+    if (!start) return;
+    const mx = ev.clientX - start.x, my = ev.clientY - start.y;
+    if (!active) {
+      if (Math.abs(my) > 12 && Math.abs(my) > Math.abs(mx)) { start = null; return; }
+      if (mx > 12 && mx > Math.abs(my) * 1.4) { active = true; el.classList.add('swiping'); row.style.transition = 'none'; }
+      else return;
+    }
+    dx = Math.max(0, mx);
+    const eased = dx > LIMIT ? LIMIT + (dx - LIMIT) * 0.35 : dx;
+    row.style.transform = `translateX(${eased}px)`;
+    el.classList.toggle('armed', dx > LIMIT);
+  });
+  const end = () => {
+    if (!start) return;
+    const wasActive = active, w = el, r = row, far = dx > LIMIT;
+    start = null; active = false;
+    if (!wasActive) return;
+    w.classList.remove('armed');
+    r.style.transition = '';
+    window.__swiped = Date.now();
+    if (far) {
+      r.style.transform = 'translateX(70%)';
+      if (!S.settings.swipeTipDone) { S.settings.swipeTipDone = true; save(); }
+      setTimeout(() => removeItem(w), 160);
+    } else { r.style.transform = ''; w.classList.remove('swiping'); }
+  };
+  document.addEventListener('pointerup', end);
+  document.addEventListener('pointercancel', end);
+  document.addEventListener('click', ev => { if (window.__swiped && Date.now() - window.__swiped < 400 && ev.target.closest('.swipe')) { ev.stopPropagation(); ev.preventDefault(); } }, true);
+})();
+
+/* Short welcome screen when the app opens. */
+function splash() {
+  const p = P();
+  const me = S.me && S.me.name;
+  const el = document.createElement('div');
+  el.className = 'splash';
+  el.setAttribute('aria-hidden', 'true');
+  el.innerHTML = `<div class="splash-in">
+    <svg class="logo" viewBox="0 0 512 512"><rect width="512" height="512" rx="112" fill="#8a7a6a"/><path d="M256 384s-118-70-118-156c0-40 30-68 66-68 24 0 42 12 52 30 10-18 28-30 52-30 36 0 66 28 66 68 0 86-118 156-118 156z" fill="#fffdf9"/></svg>
+    <h1>Care Companion</h1>
+    ${me ? `<p class="splash-me">Welcome back, ${esc(me.split(' ')[0])}</p>` : ''}
+    ${p ? `<p class="muted">caring for ${esc(p.name)}</p>` : ''}
+  </div>`;
+  document.body.appendChild(el);
+  setTimeout(() => el.classList.add('out'), 1300);
+  setTimeout(() => el.remove(), 1900);
 }
 
 /* Person form — grouped into short, collapsible sections */
@@ -921,6 +1108,8 @@ const actions = {
   'add-contact': () => contactForm(),
   'add-person': () => personForm(),
   'edit-person': () => personForm(P()),
+  'edit-me': () => meForm(),
+  'swipe-tip': () => { S.settings.swipeTipDone = true; save(); render(); },
   'switch-person': () => personSwitcher(),
   'pick-person': b => { S.activeId = b.dataset.id; save(); closeSheet(true); view = 'today'; render(); },
   'toggle-med': b => { toggleMed(b.dataset.k, b.dataset.m); save(); render(); },
@@ -1024,8 +1213,11 @@ document.addEventListener('keydown', ev => { if (ev.key === 'Escape' && $('.over
 document.addEventListener('submit', ev => {
   if (ev.target.id !== 'welcome-form') return;
   ev.preventDefault();
-  const name = new FormData(ev.target).get('name').trim();
+  const fd = new FormData(ev.target);
+  const name = fd.get('name').trim();
   if (!name) return;
+  const me = (fd.get('me') || '').trim();
+  if (me) S.me = { ...(S.me || {}), name: me };
   const p = { id: uid(), name, color: COLORS[0] };
   S.people.push(p); S.activeId = p.id; save(); render();
   toast(`Welcome! Start by adding ${name}’s medicines or doctor.`);
@@ -1091,6 +1283,7 @@ function demoData() {
 
 /* ---------- Start ---------- */
 render();
+splash();
 setInterval(() => { checkReminders(); if (!$('.overlay') && !document.activeElement?.matches('input,textarea,select')) render(); }, 60 * 1000);
 document.addEventListener('visibilitychange', () => { if (!document.hidden && !$('.overlay')) render(); });
 connectCloud();

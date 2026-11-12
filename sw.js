@@ -1,5 +1,5 @@
 // Offline support: cache the app shell, serve it when there is no connection.
-const CACHE = 'care-companion-v3';
+const CACHE = 'care-companion-v4';
 const FILES = ['./', 'index.html', 'styles.css', 'extras.js', 'app.js', 'manifest.json', 'icon.svg'];
 
 self.addEventListener('install', e => {

@@ -279,12 +279,12 @@ function render() {
     app.innerHTML = `<div id="shell">
       <header class="top" id="top"></header>
       <main id="main"></main>
-      <button class="fab" data-act="add" aria-label="Add something">${icon('plus')}</button>
       <nav class="nav" aria-label="Main"><ul><li class="nav-ind" aria-hidden="true"></li>${NAV.map(([v, i, l]) =>
         `<li><button data-act="nav" data-v="${v}">${icon(i)}<span>${l}</span></button></li>`).join('')}</ul></nav></div>`;
   }
   $('#top').innerHTML = `<button class="who" data-act="switch-person" aria-label="Caring for ${esc(p.name)}. Switch person">
-      ${avatar(p)}<span><small>Caring for</small><b>${esc(p.name)}</b></span>${icon('down')}</button>`;
+      ${avatar(p)}<span><small>Caring for</small><b>${esc(p.name)}</b></span>${icon('down')}</button>
+    <button class="addbtn" data-act="add" aria-label="Add">${icon('plus')}</button>`;
   const main = $('#main');
   main.innerHTML = views[view](p);
   if (shownView !== view) {
@@ -567,6 +567,7 @@ function sheet(title, body, onMount) {
   const el = document.createElement('div');
   el.className = 'overlay';
   el.innerHTML = `<div class="sheet" role="dialog" aria-modal="true" aria-label="${esc(title)}">
+    <div class="grabber" aria-hidden="true"></div>
     <div class="sheet-head"><h2>${esc(title)}</h2><button class="iconbtn" data-close aria-label="Close">${icon('x')}</button></div>
     <div class="sheet-body">${body}</div></div>`;
   el.addEventListener('click', e => { if (e.target === el || e.target.closest('[data-close]')) closeSheet(); });
@@ -574,11 +575,48 @@ function sheet(title, body, onMount) {
   document.body.appendChild(el);
   document.body.classList.add('noscroll');
   const s = el.querySelector('.sheet');
+  sheetDrag(el, s);
   initPickers(s);
   if (onMount) onMount(s);
   const f = s.querySelector('[autofocus]') || s.querySelector('.sheet-body button, .sheet-body a, .sheet-body input');
   if (f && !matchMedia('(pointer:coarse)').matches) f.focus(); else s.querySelector('[data-close]').focus();
   return s;
+}
+/* Drag the top of a sheet down to close it, like on iPhone. */
+function sheetDrag(el, s) {
+  let y0 = null, dy = 0, t0 = 0;
+  s.addEventListener('pointerdown', ev => {
+    if (!ev.target.closest('.grabber, .sheet-head') || ev.target.closest('button')) return;
+    y0 = ev.clientY; dy = 0; t0 = performance.now();
+    try { s.setPointerCapture(ev.pointerId); } catch (e) { /* ignore */ }
+  });
+  s.addEventListener('pointermove', ev => {
+    if (y0 === null) return;
+    dy = Math.max(0, ev.clientY - y0);
+    s.classList.add('dragging');
+    s.style.transform = `translateY(${dy}px)`;
+    el.style.backgroundColor = `rgba(30, 28, 26, ${(0.42 * Math.max(0, 1 - dy / 500)).toFixed(3)})`;
+  });
+  const up = () => {
+    if (y0 === null) return;
+    y0 = null;
+    s.classList.remove('dragging');
+    const fast = dy > 70 && dy / Math.max(1, performance.now() - t0) > 0.6;
+    if (dy > 120 || fast) {
+      s.style.transition = 'transform .26s cubic-bezier(.4, 0, 1, 1)';
+      s.style.transform = 'translateY(105%)';
+      el.style.transition = 'background-color .26s';
+      el.style.backgroundColor = 'rgba(30, 28, 26, 0)';
+      setTimeout(() => { closeSheet(true); if (lastFocus && document.contains(lastFocus)) lastFocus.focus(); }, 250);
+    } else {
+      s.style.transition = 'transform .4s cubic-bezier(.3, 1.3, .5, 1)';
+      s.style.transform = '';
+      el.style.backgroundColor = '';
+      setTimeout(() => { s.style.transition = ''; }, 420);
+    }
+  };
+  s.addEventListener('pointerup', up);
+  s.addEventListener('pointercancel', up);
 }
 function closeSheet(silent) {
   $$('.overlay').forEach(o => {
@@ -621,7 +659,8 @@ function meCard() {
 function meForm() {
   const me = S.me || {};
   const v = k => esc(me[k] || '');
-  const inp = (k, ph = '', type = 'text') => `<input type="${type}" name="${k}" value="${v(k)}" placeholder="${esc(ph)}">`;
+  const AC = { phone: 'tel', email: 'email', address: 'street-address' };
+  const inp = (k, ph = '', type = 'text') => `<input type="${type}" name="${k}" value="${v(k)}" placeholder="${esc(ph)}" ${AC[k] ? `autocomplete="${AC[k]}"` : ''}>`;
   sheet('About me', `<form id="f">
     <div class="photo-pick">
       <div id="ph-prev">${avatar({ ...me, name: me.name || '?', color: '#a08f7d' }, 'xl')}</div>
@@ -631,7 +670,7 @@ function meForm() {
       </div>
       <input type="hidden" name="photo" value="${v('photo')}">
     </div>
-    ${field('My name', `<input name="name" required value="${v('name')}" placeholder="e.g. Anna">`)}
+    ${field('My name', `<input name="name" required value="${v('name')}" placeholder="e.g. Anna" autocomplete="name">`)}
     <div class="grid2">${field('My phone', inp('phone', '', 'tel'))}${field('My email', inp('email', '', 'email'))}</div>
     ${field('My address', inp('address', 'Street, town'))}
     ${field('How I’m related', inp('relation', 'e.g. Daughter'))}
@@ -700,9 +739,9 @@ function removeItem(el) {
     const repeats = e.repeat && e.repeat !== 'none';
     ask('Remove from the plan?', `<p style="font-size:1.05rem"><b>${esc(e.title)}</b><br><span class="muted">${relDay(date)}${e.time ? ' · ' + fmtT(e.time) : ''}</span></p>
       <div class="stack" style="margin-top:20px">
-        ${repeats ? `<button class="btn primary big" data-r="once">Remove just ${relDay(date) === 'Today' ? 'today’s' : 'this one'}</button><button class="btn big danger" data-r="all">Delete all repeats</button>`
-        : '<button class="btn primary big" data-r="all">Yes, delete it</button>'}
-        <button class="btn big" data-r="no">Keep it</button></div>`, r => {
+        ${repeats ? `<button class="btn destructive big" data-r="once">Remove ${relDay(date) === 'Today' ? 'for today' : 'this one'}</button><button class="btn big danger" data-r="all">Delete all repeats</button>`
+        : '<button class="btn destructive big" data-r="all">Delete</button>'}
+        <button class="btn big" data-r="no">Cancel</button></div>`, r => {
       if (r === 'once') {
         e.skipDates = [...(e.skipDates || []), date]; save(); render();
         toast('Removed for today', () => { e.skipDates = e.skipDates.filter(d => d !== date); save(); render(); });
@@ -717,7 +756,7 @@ function removeItem(el) {
     ask('Skip these medicines?', `<p style="font-size:1.05rem">Remove the ${fmtT(time)} medicines from ${relDay(date) === 'Today' ? 'today’s' : 'this day’s'} plan:</p>
       <p class="muted" style="margin-top:6px">${meds.map(i => esc(i.m.name)).join(', ')}</p>
       <p class="small muted" style="margin-top:8px">Only for this day — they’ll show up again as usual afterwards.</p>
-      <div class="stack" style="margin-top:20px"><button class="btn primary big" data-r="yes">Yes, skip them</button><button class="btn big" data-r="no">Keep them</button></div>`, () => {
+      <div class="stack" style="margin-top:20px"><button class="btn destructive big" data-r="yes">Skip for today</button><button class="btn big" data-r="no">Cancel</button></div>`, () => {
       S.skipLog = S.skipLog || {};
       meds.forEach(i => { S.skipLog[i.key] = 1; });
       save(); render();
@@ -799,9 +838,11 @@ function splash() {
       <svg class="logo" viewBox="0 0 512 512"><rect width="512" height="512" rx="112" fill="#8a7a6a"/><path d="M256 384s-118-70-118-156c0-40 30-68 66-68 24 0 42 12 52 30 10-18 28-30 52-30 36 0 66 28 66 68 0 86-118 156-118 156z" fill="#fffdf9"/></svg>
       <span>Care Companion</span>
     </div>`;
+  try { if (sessionStorage.getItem('cc-opened')) return; sessionStorage.setItem('cc-opened', '1'); } catch (e) { /* ignore */ }
   document.body.appendChild(el);
-  setTimeout(() => el.classList.add('out'), 2100);
-  setTimeout(() => el.remove(), 2800);
+  const leave = () => { if (el.classList.contains('out')) return; el.classList.add('out'); setTimeout(() => el.remove(), 650); };
+  el.addEventListener('pointerdown', leave);
+  setTimeout(leave, 1600);
 }
 
 /* Person form — grouped into short, collapsible sections */
@@ -1150,11 +1191,11 @@ function personSwitcher() {
 }
 
 /* In-app confirmation (browser pop-ups are not always allowed). */
-function ask(msg, ok = 'Yes, delete') {
+function ask(msg, ok = 'Delete') {
   return new Promise(res => {
     let answered = false;
     const s = sheet('Are you sure?', `<p style="font-size:1.05rem">${esc(msg)}</p>
-      <div class="stack" style="margin-top:20px"><button class="btn primary big" data-yes>${esc(ok)}</button><button class="btn big" data-no>Cancel</button></div>`);
+      <div class="stack" style="margin-top:20px"><button class="btn destructive big" data-yes>${esc(ok)}</button><button class="btn big" data-no>Cancel</button></div>`);
     s.addEventListener('click', ev => {
       if (ev.target.closest('[data-yes]')) { answered = true; closeSheet(true); res(true); }
       else if (ev.target.closest('[data-no]')) { answered = true; closeSheet(true); res(false); }
@@ -1180,7 +1221,10 @@ function toggleMed(key, mid, on) {
 }
 
 const actions = {
-  nav: b => { view = b.dataset.v; render(); scrollTo(0, 0); },
+  nav: b => {
+    view = b.dataset.v; render(); scrollTo({ top: 0 });
+    try { localStorage.setItem(KEY + '-view', JSON.stringify({ view, at: Date.now() })); } catch (e) { /* ignore */ }
+  },
   add: () => addMenu(),
   'add-ev': () => eventForm(null, 'appointment'),
   'add-errand': () => eventForm(null, 'errand'),
@@ -1272,12 +1316,12 @@ const actions = {
       let d;
       try { d = JSON.parse($('#bk', s).value); if (!Array.isArray(d.people)) throw new Error(); }
       catch { toast('That is not a Care Companion backup'); return; }
-      if (await ask('Replace everything with the backup?', 'Yes, restore')) { S = Object.assign(blank(), d); save(); view = 'today'; render(); toast('Backup restored'); }
+      if (await ask('Replace everything with the backup?', 'Restore')) { S = Object.assign(blank(), d); save(); view = 'today'; render(); toast('Backup restored'); }
     });
   },
   'delete-person': async () => {
     const p = P();
-    if (!await ask(`Remove ${p.name} and all their medicines and appointments? This can’t be undone.`, 'Yes, remove')) return;
+    if (!await ask(`Remove ${p.name} and all their medicines and appointments? This can’t be undone.`, 'Remove')) return;
     S.people = S.people.filter(x => x !== p); S.meds = S.meds.filter(m => m.personId !== p.id); S.events = S.events.filter(e => e.personId !== p.id);
     S.activeId = S.people[0]?.id || null; save(); view = 'today'; render();
   },
@@ -1362,6 +1406,10 @@ function demoData() {
 }
 
 /* ---------- Start ---------- */
+try {
+  const last = JSON.parse(localStorage.getItem(KEY + '-view') || 'null');
+  if (last && Date.now() - last.at < 30 * 60 * 1000 && ['today', 'plan', 'meds', 'contacts', 'about'].includes(last.view)) view = last.view;
+} catch (e) { /* ignore */ }
 render();
 splash();
 setInterval(() => { checkReminders(); if (!$('.overlay') && !document.activeElement?.matches('input,textarea,select')) render(); }, 60 * 1000);
